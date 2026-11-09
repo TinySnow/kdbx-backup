@@ -113,7 +113,7 @@ docker compose stop backup
 docker compose up -d
 ```
 
-其他任务先停止对应任务，将授权文件路径换成自己的路径，再启动该任务。取消 Testing 的 7 天限制不表示授权永远不会失效；撤销权限等情况仍需重新授权。
+其他任务先停止对应任务，将授权文件路径换成自己的路径，再启动该任务。Production 取消 Testing 特定的 7 天限制。刷新令牌连续 6 个月未使用、用户撤销授权、超过令牌数量限制或账号策略变化等，仍可能使授权失效。当前备份服务只在有上传任务时访问目标；主库长期没有变化时，Google Drive 目标不会自动被访问。
 
 依据：[Google 受众与发布状态](https://support.google.com/cloud/answer/15549945)、[个人用途验证豁免](https://support.google.com/cloud/answer/13464323)、[刷新令牌过期说明](https://developers.google.com/identity/protocols/oauth2#expiration)。
 
