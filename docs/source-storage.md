@@ -1,67 +1,87 @@
-# 使用其他云盘作为主库
+# 选择主库所在的云盘
 
-备份核心通过 rclone 读取文件，并不限定 OneDrive。初始化生成的 `source: "onedrive:"` 和从零部署指南使用 OneDrive 作为示例；使用其他来源时，需要配置对应 remote，并修改 `source`。后续的历史快照、独立上传重试及读回 SHA-256 校验相同。
+你的密码库可以放在 OneDrive、Google Drive、坚果云 WebDAV 或其他 rclone 支持的存储中。选择哪种主库，不会改变保存历史和上传校验的方式。
 
-本文假定已经按[从零部署指南](deploy-from-zero.md)准备好项目、Docker 镜像和授权工具。命令均在项目根目录执行；原生工具示例使用 macOS/Linux 的 `.tools/rclone`，Windows 改为 `.tools/rclone.exe`，`python3` 改为 `python`。
+本指南以 **Google Drive 中的 `密码库/PASSWD.kdbx`** 为例。你将连接这个账号，并告诉备份服务到哪里读取文件。
 
-## 主库、remote 和备份目标
+## 开始之前
 
-- `source`：日常密码管理器编辑的那一个 `.kdbx` 文件，服务只读取。
-- remote：rclone 中一个存储连接的名字，决定存储类型及账号，例如 `primary`。
-- `targets`：保存独立历史快照的位置，可以有多个。它们与主库分别配置账号。
+先完成[首次设置](deploy-from-zero.md)的第 1 至 3 步。如果正在更换一个已运行任务的主库，先另存当前数据库，并停止该任务。
 
-`primary`、`onedrive`、`gdrive` 都是自定义名字；名字本身不能决定云盘类型。同一凭据文件中，来源和目标若使用同一种云盘的不同账号，应建立不同名称的 remote，例如 `primary` 和 `gdrive`。
+以下命令在项目文件夹执行。默认任务使用 `.secrets/rclone/rclone.conf`；哥哥的任务使用 `profiles/brother/.secrets/rclone/rclone.conf`。Windows 原生终端使用 `.tools/rclone.exe`，Python 命令使用 `python`。
 
-每个实例只跟踪一个主库文件；同一账号的多个数据库也应分别使用多个实例，步骤见[家人实例指南](family-profiles.md)。
+## 1. 为主库创建一个连接
 
-## 1. 配置来源连接
-
-默认实例先停止服务，再打开自己的授权文件：
+默认任务运行：
 
 ```sh
 docker compose stop backup
 .tools/rclone --config .secrets/rclone/rclone.conf config
 ```
 
-如果操作的是 `brother` 实例，改为：
+如果操作的是哥哥的任务，改用：
 
 ```sh
 python3 scripts/manage.py configure --profile brother
 ```
 
-管理工具需要宿主机 Python 3.9+，会先停止所选实例，再使用其独立的凭据文件。没有浏览器时使用 `configure --profile brother --headless`，并按 [rclone 无界面授权流程](https://rclone.org/remote_setup/)完成授权；镜像必须能从本地构建，或使用项目支持的已发布镜像部署方式。
+在向导中选择 `n`，将新连接命名为 `primary`。再根据主库所在的云盘选择类型：
 
-在向导中选择 `n`，新建名为 `primary` 的 remote，按实际存储选择类型：
+| 主库所在云盘 | 在 Storage 输入 | 授权方式 |
+| --- | --- | --- |
+| Google Drive | `drive` | 使用 Google OAuth 客户端，再登录主库所属 Google 账号 |
+| OneDrive | `onedrive` | 通过浏览器登录主库所属微软账号 |
+| 坚果云 | `webdav` | 填写 WebDAV 地址、账号和第三方应用密码 |
+| Dropbox | `dropbox` | 按向导打开浏览器并授权 |
 
-| 主库位置 | rclone 类型 | 授权要点 | `source` 示例 |
-| --- | --- | --- | --- |
-| OneDrive | `onedrive` | 登录主库所属微软账号；普通个人账号选 `global`，世纪互联中国版选 `cn` | `primary:PASSWD.kdbx` |
-| Google Drive | `drive` | 使用自己的 Google OAuth 客户端，登录主库所属 Google 账号 | `primary:密码库/PASSWD.kdbx` |
-| 坚果云 | `webdav` | URL 为 `https://dav.jianguoyun.com/dav/`，vendor 为 `other`，使用第三方应用密码 | `primary:密码库/PASSWD.kdbx` |
-| Dropbox | `dropbox` | 按向导通过浏览器授权主库所属账号 | `primary:密码库/PASSWD.kdbx` |
+Google 的详细填写步骤见[连接 Google Drive](google-drive-oauth.md)。本例连接名称使用 `primary`，将该指南中的 `name: gdrive` 改为 `name: primary` 即可。坚果云的填写方法见[连接坚果云](deploy-from-zero.md#连接坚果云)。
 
-Google Drive 的客户端创建和长期授权设置见 [Google OAuth 指南](google-drive-oauth.md)。不要因为来源改为 Google Drive，就沿用备份账号的 remote 去读取另一个人的主库。
+**确认结果：** 保存并退出向导后，连接列表中应有 `primary`：
 
-支持范围以当前镜像内 rclone 版本及服务商开放接口为准，不能将“支持 rclone”理解为所有网盘都可直接接入。例如夸克等未提供相应标准连接方式的网盘，需要另行验证集成，本文不提供其可用性保证。
+```sh
+.tools/rclone --config .secrets/rclone/rclone.conf listremotes
+```
 
-## 2. 核对路径和账号
+操作哥哥任务时，以上命令的授权文件路径也换成哥哥的路径。`primary` 是你给连接起的名字，它所使用的云盘和账号由刚才的授权决定。
 
-仅列出主库所在目录的文件，不读取密码内容。默认实例示例：
+## 2. 找到数据库的完整路径
+
+检查本例中的文件夹：
 
 ```sh
 .tools/rclone --config .secrets/rclone/rclone.conf lsf 'primary:密码库/' --files-only --max-depth 1
-.tools/rclone --config .secrets/rclone/rclone.conf lsjson --stat 'primary:密码库/PASSWD.kdbx'
 ```
 
-其他实例将 `--config` 的参数改为 `profiles/<实例名>/.secrets/rclone/rclone.conf`。确认文件名、大小和最近修改时间符合预期。
+**确认结果：** 列表中有 `PASSWD.kdbx`。文件在根目录时，把 `primary:密码库/` 改成 `primary:`。
 
-推荐填写完整文件路径。目录自动发现仅在 `source` 以 `:` 或 `/` 结尾时启用，例如 `primary:` 或 `primary:密码库/`；该目录第一层必须恰好有一个 `.kdbx`，不会递归寻找，也不会自动挑选最新或最大的文件。
+路径写法可以这样理解：
 
-自动发现成功后，服务在本次运行中继续跟踪该文件路径。若主库改名或换目录，需要修改配置并重启；如果只是同一路径的文件被替换，后续检查会重新读取该路径。不要依赖自动发现来处理多个冲突副本。
+```text
+primary:密码库/PASSWD.kdbx
+└连接名 └── 云盘内的文件路径 ──┘
+```
 
-## 3. 修改配置并启动
+这里填写云盘里的路径，不是浏览器网址，也不是 Mac 上的同步文件夹路径。
 
-编辑默认实例的 `config/config.json`，或命名实例的 `profiles/<实例名>/config/config.json`。例如 Google Drive 主库，备份到另一个 Google Drive 连接和坚果云：
+## 3. 连接备份云盘
+
+按照[首次设置的第 5 步](deploy-from-zero.md#5-连接两个备份云盘)连接 Google Drive 和坚果云，或只连接其中一个。
+
+主库与备份属于不同 Google 账号时，要建立两个连接。例如：
+
+| 名称 | 登录账号 | 用途 |
+| --- | --- | --- |
+| `primary` | 保存日常数据库的 Google 账号 | 读取主库 |
+| `gdrive` | 用于保存备份的 Google 账号 | 写入历史 |
+| `jianguoyun` | 用于保存备份的坚果云账号 | 写入历史 |
+
+即使两个 Google 连接的类型都叫 `drive`，账号也可以不同。
+
+## 4. 修改 source 并启用
+
+默认任务编辑 `config/config.json`；哥哥的任务编辑 `profiles/brother/config/config.json`。
+
+把 `source` 设为第 2 步确认的完整路径，将 `enabled` 设为 `true`。以下是默认任务的完整示例：
 
 ```json
 {
@@ -69,42 +89,46 @@ Google Drive 的客户端创建和长期授权设置见 [Google OAuth 指南](go
   "source": "primary:密码库/PASSWD.kdbx",
   "poll_seconds": 60,
   "targets": [
-    {"name": "google-drive", "path": "gdrive:KDBX-Backups/brother"},
-    {"name": "jianguoyun", "path": "jianguoyun:KDBX-Backups/brother"}
+    {"name": "google-drive", "path": "gdrive:KDBX-Backups/me"},
+    {"name": "jianguoyun", "path": "jianguoyun:KDBX-Backups/me"}
   ]
 }
 ```
 
-这份示例中 `primary`、`gdrive`、`jianguoyun` 必须都存在于该实例的凭据文件中。目标不必包含 Google Drive；只保留实际已配置的目标即可。若来源和备份使用同一云盘账号，要将快照放在主库目录以外的独立目录；同一账号内的副本也不能抵御该账号整体不可访问。
+哥哥的任务将目标目录末尾改为 `/brother`。已有任务只修改 `source` 和需要调整的字段，保留原目标路径。
 
-默认实例检查并启动：
+## 5. 开始备份
+
+默认任务运行：
 
 ```sh
 docker compose run --rm --no-deps backup check-config
 docker compose up -d --build
-docker compose exec -T backup python -m kdbx_backup.service status
 ```
 
-`brother` 实例对应命令：
+哥哥的任务运行：
 
 ```sh
 python3 scripts/manage.py check --profile brother
 python3 scripts/manage.py start --profile brother
-python3 scripts/manage.py status --profile brother
 ```
 
-语法检查不验证云端账号和权限。等待一个检查周期后，确认 `healthy: true`、`snapshots` 至少为 1、每个目标 `pending: 0`，并实际下载试开一份快照。
+等一两分钟后，按[状态检查步骤](operations.md)确认各目标待上传数为零，再下载一份历史数据库试开。
 
-## 已有实例迁移主库
+## 更换已有任务的主库时
 
-先停止该实例，在新云盘上传并确认准备使用的数据库，配置新的来源 remote，再将 `source` 改为新文件路径。保留该实例原有数据目录及目标目录，然后启动并验收。
+保留该任务原有的本地历史目录和 `targets`，只连接新来源并修改 `source`。新文件内容与上一份快照相同，服务会跳过；内容不同，会新增历史。原有历史不会被清空。
 
-不要为了换主库而删除本地快照、SQLite 或上传队列。服务按内容 SHA-256 判断是否生成新快照：新来源与上一份内容相同会跳过，内容不同则新增一份，旧历史继续保留。改动其他备份目标的路径会触发向新目录补传本地历史，因此只迁移来源时应保留 `targets`。
+如果同时修改目标目录，服务会把本地已有历史补传到新目标。仅更换主库时，无需移动备份文件夹。
 
-## 官方连接说明
+## 找不到文件或出现多个数据库时
 
-- [rclone OneDrive](https://rclone.org/onedrive/)
-- [rclone Google Drive](https://rclone.org/drive/)
-- [rclone WebDAV](https://rclone.org/webdav/)
-- [坚果云第三方应用授权](https://help.jianguoyun.com/?p=2064)
-- [rclone Dropbox](https://rclone.org/dropbox/)
+优先填写完整文件路径。只有 `source` 以 `:` 或 `/` 结尾时才会自动寻找文件，例如 `primary:`、`primary:密码库/`。
+
+自动寻找仅检查该目录第一层，要求恰好有一个 `.kdbx`。服务不会递归搜索，也不会按大小或时间选文件。找到后，本次运行会继续读取这个路径；改名或换目录后，需要修改配置并重启。
+
+## 其他云盘能用吗？
+
+先确认当前镜像内的 rclone 支持该存储，再验证连接、列出文件和实际备份。支持 rclone 不代表所有网盘都能直接接入；没有可用标准接口的网盘需要另行适配。
+
+官方连接说明：[OneDrive](https://rclone.org/onedrive/)、[Google Drive](https://rclone.org/drive/)、[WebDAV](https://rclone.org/webdav/)、[Dropbox](https://rclone.org/dropbox/)。

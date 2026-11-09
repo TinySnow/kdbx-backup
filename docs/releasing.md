@@ -1,66 +1,88 @@
-# 维护者发布指南
+# 测试和发布镜像
 
-项目以 Linux 容器分发，目标架构为 `linux/amd64`、`linux/arm64`。宿主管理工具支持 Windows、macOS、Linux，Python 3.9+，无第三方 Python 依赖。备份服务本身在容器内运行，未承诺 Windows 原生 Python 服务。
+本页供维护项目源码和发布 Docker 镜像的人使用。只想运行备份时，请使用[首次设置指南](deploy-from-zero.md)，无需创建版本标签或上传镜像。
 
-## 自动测试
+项目以 Linux 容器运行，目标架构为 `linux/amd64`、`linux/arm64`。宿主管理工具使用 Python 3.9+，支持 Windows、macOS 和 Linux。
 
-`.github/workflows/ci.yml` 对分支 push 和 PR 运行：
+## 在提交前运行测试
 
-- Linux、macOS、Windows 上的管理工具测试；最低 Python 3.9 在 Linux 上验证。
-- AMD64 与 ARM64 的原生 Linux runner 上构建镜像，并在容器中运行全部测试。
-- 检查默认、家庭实例、初始化、本地构建与命名实例的 Compose 配置。
-
-测试只使用合成文件和临时目录，不需要网盘账号。Windows/macOS runner 测试管理工具；完整 Docker Desktop 主机挂载和真实 OAuth 授权仍需要相应设备上的人工验收。
-
-本地等价命令：
+在项目文件夹运行宿主管理工具测试：
 
 ```sh
 python3 scripts/manage.py test
+```
+
+在 Docker 中分别运行两个架构的完整测试：
+
+```sh
 python3 scripts/manage.py test-integration --platform linux/amd64
 python3 scripts/manage.py test-integration --platform linux/arm64
 ```
 
-异构架构测试需要 Docker 的 QEMU／Rosetta 等模拟支持。实际发布 CI 分别使用原生 runner。
+**确认结果：** 测试成功退出。异构测试需要 Docker 提供 QEMU、Rosetta 等模拟支持。这些命令使用合成数据和临时目录，不挂载真实云盘凭据或生产数据。
 
-## 镜像发布
+## 检查 GitHub Actions
 
-1. 将项目上传到你拥有的 GitHub 仓库，允许 Actions 使用 `GITHUB_TOKEN` 写入 Packages。
-2. 修改 `VERSION`，例如 `0.1.0`，同时更新 deploy/Dockerfile 的默认 `ARG VERSION`。
-3. 推送对应的 `v0.1.0` 标签。
-4. `release.yml` 先调用完整测试，全部通过后才向 GHCR 推送双架构镜像。
+推送分支或创建 Pull Request 后，在仓库的 **Actions → Tests** 查看结果：
 
-镜像地址自动使用当前仓库的小写路径：`ghcr.io/owner/repository:0.1.0`。稳定版同时更新 `latest`；带 `-rc.1` 等后缀的预发布版本只推送版本标签。标签必须与 `VERSION` 完全匹配。发布不需要另建 PAT，使用仓库提供的 `GITHUB_TOKEN`。
+- Linux、macOS、Windows 的管理工具测试。
+- AMD64、ARM64 原生 Linux runner 的容器测试。
+- Compose 配置及纯 Docker 初始化检查。
 
-首次发布后，按面向用户的访问范围设置 GHCR 包的可见性，并用干净环境验证拉取。私有包的使用者需要先完成 `docker login ghcr.io`。
+工作流文件位于 `.github/workflows/ci.yml`。实际是否通过以该次运行结果为准。Windows/macOS 的宿主工具测试不代替真实 Docker Desktop 挂载和 OAuth 授权的人工检查。
 
-源码和自动化配置已准备好，不代表镜像已经存在。当前适配工作不创建远端仓库、不推送标签、不上传任何镜像。
+## 发布一个版本
 
-## 无 GitHub Actions 的构建
+开始前，确认你有仓库和 GHCR 包的写入权限。当前仓库为私有；发布包时也要单独核对包的可见性，不要假定它与源码仓库自动一致。
 
-```sh
-docker buildx build -f deploy/Dockerfile --platform linux/amd64,linux/arm64 \
-  --build-arg VERSION=0.1.0 \
-  --tag ghcr.io/yourname/kdbx-backup:0.1.0 \
-  --push .
+1. 修改 `VERSION`，例如设为 `0.1.0`，同步修改 `deploy/Dockerfile` 的默认 `ARG VERSION`。
+2. 提交并推送版本修改，确认测试通过。
+3. 创建并推送相同版本的标签：
+
+   ```sh
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+
+   使用你实际准备发布的版本号；已存在的标签不要重复创建或覆盖。
+4. 在 **Actions → Publish image** 查看发布结果。
+
+**确认结果：** 完整测试通过后，工作流向 GHCR 上传双架构镜像。这个仓库的地址形式为 `ghcr.io/tinysnow/kdbx-backup:版本号`；它只有在发布成功后才可拉取。
+
+版本标签必须与 `VERSION` 一致。稳定版同时更新 `latest`；带 `-rc.1` 等后缀的预发布版本只更新对应版本标签。工作流使用 `GITHUB_TOKEN`，需要 Packages 写权限。
+
+## 验证发布的镜像
+
+私有包先按 GitHub 的包访问要求完成 `docker login ghcr.io`。在有读取权限的干净环境中验证拉取，以及 AMD64、ARM64 两个平台运行。
+
+只有确认镜像已经存在，使用者才能在 `.env` 设置：
+
+```dotenv
+KDBX_BACKUP_IMAGE=ghcr.io/tinysnow/kdbx-backup:0.1.0
 ```
 
-在已登录的仓库执行上述命令会直接发布镜像，应由维护者在验证完成后运行。普通用户从源码使用 `python scripts/manage.py start` 即可，无需发布。
+替换为实际发布版本。新部署用此镜像初始化：
 
-## 版本维护
+```sh
+docker compose -f compose.init.yaml pull init
+docker compose -f compose.init.yaml run --rm init
+```
 
-- `tools/bootstrap_rclone.py` 的 `VERSION` 与 deploy/Dockerfile 的 `RCLONE_VERSION` 保持一致。
-- 升级 rclone 后，必须保留并运行“单文件复制绕过 immutable”的回归测试。历史上传使用目录复制加精确过滤，避免切回单文件路径。
-- 发布包只包含源码与示例。实际 `config/config.json`、`.secrets/`、`.tools/`、`data/`、整个 `profiles/` 已从 Git 和镜像构建上下文排除。
-- 本项目采用 MIT，rclone 等第三方组件遵守各自许可证。
+再拉取并启动默认任务：
 
-## 2026-11-02 本地验证
+```sh
+docker compose pull backup
+docker compose up -d --no-build
+```
 
-适配前：本机 macOS ARM64 / OrbStack，18 项容器测试通过。
+已有服务仍需保留配置、授权和持久化数据。命名任务可用 `python3 scripts/manage.py start --profile brother --pull`。
 
-适配后：本机 macOS 的 13 项宿主管理工具测试通过；ARM64 原生容器、AMD64 模拟容器各 31 项测试通过，包含原备份逻辑、真实 rclone、本地模拟 WebDAV 和管理工具测试。两份工作流通过 actionlint 检查。Windows 实机、其他 NAS 的挂载文件系统与实际云盘 OAuth 尚未验收；GitHub Actions 尚未连接远端仓库，不能将配置存在视为远端 CI 已运行。
+## 维护依赖和发布内容
 
-多账号适配后：宿主管理工具测试增至 24 项；ARM64 原生与 AMD64 模拟容器各 43 项测试通过。新增测试覆盖多实例目录与凭据隔离、默认配置兼容、未知实例拒绝创建、批量管理、停止与未创建状态展示，以及两个独立服务进程同时使用相同 remote 名称、相同密码库文件名时的独立备份。一个账号的源文件删除后，另一个账号仍可继续上传新版本。更新后的工作流也通过 actionlint 检查。
+- `scripts/bootstrap_rclone.py` 的 `VERSION` 与 `deploy/Dockerfile` 的 `RCLONE_VERSION` 保持一致。
+- 升级 rclone 时，运行上传不可覆盖的回归测试。当前上传使用目录复制加精确文件过滤，避免单文件复制绕过不可变检查。
+- Git 忽略规则排除实际配置、授权、工具和历史。提交前再次检查暂存区，尤其不要用强制添加来纳入这些文件。
+- 镜像构建只包含运行源码和许可证，不包含实际数据库或云盘授权。
+- 项目使用 MIT；第三方组件遵守各自许可证。
 
-纯 Docker 入口适配后：宿主管理测试 25 项通过；本机已实测 `compose.init.yaml` 初始化、默认 Compose 启动、`compose.family.yaml` 启动，确认与管理工具使用相同实例及挂载。另在容器内部的临时 Linux 文件系统中，以 UID 1001 验证首次初始化、目录归属和服务配置读取、状态写入。真实账号仍需分别授权。
-
-目录整理及可配置存储适配后：源码移到 `src/kdbx_backup/`，管理和初始化工具移到 `scripts/`，Dockerfile 移到 `deploy/`，配置示例移到 `examples/`。宿主管理测试 32 项通过；ARM64 原生容器和 AMD64 模拟容器各 52 项通过，包括自定义绝对/相对数据根、homelab 自动推断、环境优先级以及迁移后保留快照和已完成上传进度。实际 homelab 的旧数据已逐文件 SHA-256 校验并迁到外置数据根，数据库完整性校验通过，保留旧数据回退副本。
+本地验证记录不作为所有系统都已验收的证明。新版本应在实际使用的宿主系统、挂载文件系统和云盘连接上完成一次首份备份与恢复检查。
