@@ -365,14 +365,17 @@ class DataLocationTests(unittest.TestCase):
         self.assertNotEqual(first, manage.Manager(self.root).data_dir)
 
     def test_host_initialization_detects_homelab_data_layout(self):
-        root = self.base / "homelab/projects/kdbx-backup"
-        (root / "examples").mkdir(parents=True)
-        (self.base / "homelab/data").mkdir()
-        (root / "examples/config.example.json").write_bytes((self.root / "examples/config.example.json").read_bytes())
-        layout.initialize(root)
-        expected = (self.base / "homelab/data/kdbx-backup/default").resolve()
-        self.assertTrue(expected.is_dir())
-        self.assertEqual(layout.data_directory(root), expected)
+        (self.base / "homelab/data").mkdir(parents=True)
+        for directory in ("projects", "services"):
+            with self.subTest(directory=directory):
+                root = self.base / "homelab" / directory / "kdbx-backup"
+                (root / "examples").mkdir(parents=True)
+                (root / "examples/config.example.json").write_bytes((self.root / "examples/config.example.json").read_bytes())
+                layout.initialize(root)
+                expected = (self.base / "homelab/data/kdbx-backup/default").resolve()
+                self.assertTrue(expected.is_dir())
+                self.assertEqual(layout.data_directory(root), expected)
+                self.assertFalse((root / "var/data").exists())
 
     def test_docker_initializer_uses_storage_mount_without_writing_host_absolute_path(self):
         (self.root / ".env").write_text("KDBX_BACKUP_DATA_ROOT=/host-only/kdbx-backup\n")

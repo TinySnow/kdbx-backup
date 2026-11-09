@@ -118,7 +118,9 @@ def initialize(root=ROOT, profile="default", storage_root=None):
     # Only the host-side initializer can see the surrounding homelab tree.
     # Docker initialization uses the configured /storage bind instead.
     homelab = root.parent.parent
-    inferred = homelab / "data/kdbx-backup" if root.parent.name == "projects" and (homelab / "data").is_dir() else "./var/data"
+    inferred = (homelab / "data/kdbx-backup"
+                if root.parent.name in {"projects", "services"} and (homelab / "data").is_dir()
+                else "./var/data")
     configured = settings(root)
     append_settings(root, {"KDBX_BACKUP_DATA_ROOT": configured.get("KDBX_BACKUP_DATA_ROOT") or inferred})
     destination = Path(storage_root) / profile if storage_root is not None else data_directory(root, profile)

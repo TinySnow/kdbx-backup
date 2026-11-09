@@ -64,7 +64,7 @@ primary:密码库/PASSWD.kdbx     名为 primary 的连接里的文件
 KDBX_BACKUP_DATA_ROOT=../../data/kdbx-backup
 ```
 
-这个相对路径适用于项目位于 `homelab/projects/kdbx-backup` 的情况。也可填写绝对路径，例如 `/srv/homelab/data/kdbx-backup`；含空格时加英文引号。填写实际路径，不要在值里继续使用环境变量表达式。
+这个相对路径适用于项目位于 `homelab/services/kdbx-backup` 的情况，旧的 `homelab/projects/kdbx-backup` 布局也适用。也可填写绝对路径，例如 `/srv/homelab/data/kdbx-backup`；含空格时加英文引号。填写实际路径，不要在值里继续使用环境变量表达式。
 
 各任务自动在根目录下使用自己的子目录：
 
@@ -78,7 +78,7 @@ KDBX_BACKUP_DATA_ROOT=../../data/kdbx-backup
 └── brother/
 ```
 
-没有配置时，通用部署使用项目内的 `var/data/`。宿主机首次运行管理工具的初始化命令时，如果识别到 `homelab/projects/` 布局，会优先选择对应的 `homelab/data/kdbx-backup/`。纯 Docker 初始化使用 `.env` 中的位置，不自动识别宿主机布局。
+没有配置时，通用部署使用项目内的 `var/data/`。宿主机首次运行管理工具的初始化命令时，如果识别到 `homelab/services/` 或 `homelab/projects/` 布局，会优先选择对应的 `homelab/data/kdbx-backup/`。纯 Docker 初始化使用 `.env` 中的位置，不自动识别宿主机布局。
 
 实际修改位置前，先按[迁移指南](data-migration.md)搬运完整目录。本地文件系统需要支持硬链接、文件锁和 SQLite；Windows 建议使用 WSL2 的 Linux 文件系统。
 
