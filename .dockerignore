@@ -1,0 +1,10 @@
+# Only runtime source and licenses enter the image build context.
+**
+!src/
+!src/**
+!deploy/
+!deploy/Dockerfile
+!LICENSE
+!third_party/
+!third_party/rclone-LICENSE
+**/__pycache__/

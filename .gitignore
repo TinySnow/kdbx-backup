@@ -1,0 +1,12 @@
+.env
+.secrets/
+.tools/
+data/
+var/
+config/config.json
+profiles/
+__pycache__/
+*.py[cod]
+.DS_Store
+*.kdbx
+*.kdbx.sha256

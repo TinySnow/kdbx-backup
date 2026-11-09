@@ -1,0 +1,14 @@
+{
+  "enabled": false,
+  "source": "onedrive:",
+  "poll_seconds": 60,
+  "settle_seconds": 3,
+  "command_timeout_seconds": 120,
+  "max_file_bytes": 33554432,
+  "retry_seconds": 60,
+  "health_grace_seconds": 900,
+  "targets": [
+    {"name": "google-drive", "path": "gdrive:KDBX-Backups"},
+    {"name": "jianguoyun", "path": "jianguoyun:KDBX-Backups"}
+  ]
+}

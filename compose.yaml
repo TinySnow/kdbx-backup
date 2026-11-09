@@ -1,0 +1,62 @@
+name: kdbx-backup
+networks:
+  default:
+    external: true
+    name: ${KDBX_BACKUP_NETWORK:-homelab}
+services:
+  backup:
+    image: ${KDBX_BACKUP_IMAGE:-homelab/kdbx-backup:local}
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    user: ${KDBX_BACKUP_UID:-0}:${KDBX_BACKUP_GID:-0}
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 150s
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 0.5
+    environment:
+      TZ: ${TZ:-UTC}
+      RCLONE_CONFIG: /secrets/rclone/rclone.conf
+      # Do not inherit a host terminal's loopback proxy inside a container.
+      HTTP_PROXY: ${KDBX_BACKUP_HTTP_PROXY:-}
+      HTTPS_PROXY: ${KDBX_BACKUP_HTTPS_PROXY:-}
+      ALL_PROXY: ${KDBX_BACKUP_ALL_PROXY:-}
+      NO_PROXY: ${KDBX_BACKUP_NO_PROXY:-localhost,127.0.0.1}
+    volumes:
+      - type: bind
+        source: ${KDBX_BACKUP_CONFIG_DIR:-./config}
+        target: /config
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${KDBX_BACKUP_DATA_ROOT:-./var/data}/${KDBX_BACKUP_PROFILE:-default}
+        target: /data
+        bind:
+          create_host_path: false
+      # Mount the directory, not the file: OAuth token refresh uses atomic rename.
+      - type: bind
+        source: ${KDBX_BACKUP_RCLONE_DIR:-./.secrets/rclone}
+        target: /secrets/rclone
+        bind:
+          create_host_path: false
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    tmpfs:
+      - /tmp:mode=1777,size=67108864
+    healthcheck:
+      test: [CMD, python, -m, kdbx_backup.service, health]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "3"

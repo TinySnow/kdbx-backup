@@ -1,0 +1,29 @@
+# The same family instance managed by "scripts/manage.py --profile family".
+# Separate project name, credentials and data subdirectory.
+name: kdbx-backup-family
+networks:
+  default:
+    external: true
+    name: ${KDBX_BACKUP_NETWORK:-homelab}
+services:
+  backup:
+    extends:
+      file: compose.yaml
+      service: backup
+    volumes:
+      - type: bind
+        source: ./profiles/family/config
+        target: /config
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${KDBX_BACKUP_DATA_ROOT:-./var/data}/family
+        target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./profiles/family/.secrets/rclone
+        target: /secrets/rclone
+        bind:
+          create_host_path: false

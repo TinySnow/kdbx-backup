@@ -1,0 +1,76 @@
+name: Tests
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  host-tools:
+    name: Host tools (${{ matrix.os }}, Python ${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            python: '3.9'
+          - os: ubuntu-24.04
+            python: '3.13'
+          - os: macos-latest
+            python: '3.13'
+          - os: windows-latest
+            python: '3.13'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python scripts/manage.py test
+      - run: python scripts/manage.py init
+      - run: python scripts/manage.py init --profile ci-family
+      - run: python scripts/manage.py profiles
+      - run: python scripts/manage.py --help
+  containers:
+    name: Container (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux/amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: docker/setup-buildx-action@v4
+      - run: python scripts/manage.py test-integration --platform ${{ matrix.platform }}
+      - run: python scripts/manage.py init
+      - run: python scripts/manage.py init --profile ci-family
+      - run: docker compose config --quiet
+      - run: docker compose -f compose.family.yaml config --quiet
+      - run: docker compose -f compose.init.yaml config --quiet
+      - name: Check named instance Compose configuration
+        run: |
+          python - <<'PY'
+          from scripts.manage import Manager
+          Manager(profile='ci-family').compose('config', '--quiet')
+          PY
+      - name: Initialize and start using Docker only
+        run: |
+          docker network create homelab
+          docker compose -f compose.init.yaml run --rm --build init
+          docker compose up -d --no-build
+          docker compose -f compose.family.yaml up -d --no-build
+          docker compose exec -T backup python -m kdbx_backup.service status
+          docker compose -f compose.family.yaml exec -T backup python -m kdbx_backup.service status
+      - name: Stop smoke-test containers
+        if: always()
+        run: |
+          docker compose down
+          docker compose -f compose.family.yaml down

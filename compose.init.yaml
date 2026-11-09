@@ -1,0 +1,31 @@
+# First-time initialization entirely inside Docker; no host Python required.
+# Existing configuration, credentials and archives are preserved.
+name: kdbx-backup-init
+services:
+  init:
+    # Initialization only touches local files; it needs no runtime network.
+    network_mode: none
+    image: ${KDBX_BACKUP_IMAGE:-homelab/kdbx-backup:local}
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    working_dir: /workspace
+    entrypoint: [python, /workspace/scripts/container_init.py]
+    environment:
+      PYTHONPATH: /workspace
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - type: bind
+        source: .
+        target: /workspace
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${KDBX_BACKUP_DATA_ROOT:-./var/data}
+        target: /storage
+        bind:
+          create_host_path: true
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID]
+    security_opt: [no-new-privileges:true]
