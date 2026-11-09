@@ -33,7 +33,7 @@ python3 scripts/manage.py test-integration --platform linux/arm64
 
 ## 发布一个版本
 
-开始前，确认你有仓库和 GHCR 包的写入权限。当前仓库为私有；发布包时也要单独核对包的可见性，不要假定它与源码仓库自动一致。
+开始前，确认你有仓库和 GHCR 包的写入权限。源码仓库和 GHCR 镜像包分别设置可见性；即使源码已公开，也要单独检查镜像包的访问权限。希望所有人无需登录就能拉取镜像时，将对应的 GHCR 包设为 Public。
 
 1. 修改 `VERSION`，例如设为 `0.1.0`，同步修改 `deploy/Dockerfile` 的默认 `ARG VERSION`。
 2. 提交并推送版本修改，确认测试通过。

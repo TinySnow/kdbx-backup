@@ -9,7 +9,7 @@
 准备以下内容：
 
 - 一台保持运行的电脑，已安装并启动 Docker。Mac 可用 OrbStack 或 Docker Desktop；Windows 使用 Docker Desktop 的 Linux 容器模式。
-- 可以访问本项目仓库的 Git 账号。当前仓库为私有仓库。
+- 已安装 Git。若使用本项目的私有副本，还需要具有仓库访问权限的 Git 账号。
 - 一个能正常打开的 `.kdbx` 文件，并知道它在 OneDrive 里的位置。
 - 用于备份的 Google 和坚果云账号。先只用一个目标也可以。
 - Python 3.9 或更高版本。本指南用它下载本机授权工具；长期运行的备份进程仍在 Docker 中。
@@ -23,7 +23,7 @@
 在终端进入你想存放项目的文件夹，运行：
 
 ```sh
-git clone git@github.com:TinySnow/kdbx-backup.git
+git clone https://github.com/TinySnow/kdbx-backup.git
 cd kdbx-backup
 docker version
 docker compose version
