@@ -1,4 +1,4 @@
-name: kdbx-backup
+name: ${KDBX_BACKUP_PROJECT_NAME:-kdbx-backup}
 networks:
   default:
     external: true

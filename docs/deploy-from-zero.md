@@ -48,7 +48,7 @@ KDBX_BACKUP_DATA_ROOT=./var/data
 TZ=Asia/Shanghai
 ```
 
-`./var/data` 表示保存在项目里的 `var/data` 文件夹。如果项目位于 `homelab/services/kdbx-backup`，希望历史存到 `homelab/data/kdbx-backup`，将第一行改成（旧的 `homelab/projects/kdbx-backup` 布局也适用）：
+`./var/data` 表示保存在项目里的 `var/data` 文件夹。如果项目或部署目录位于 `homelab/projects/kdbx-backup` 或 `homelab/services/kdbx-backup`，希望历史存到 `homelab/data/kdbx-backup`，将第一行改成：
 
 ```dotenv
 KDBX_BACKUP_DATA_ROOT=../../data/kdbx-backup

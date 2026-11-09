@@ -1,6 +1,6 @@
 # The same family instance managed by "scripts/manage.py --profile family".
 # Separate project name, credentials and data subdirectory.
-name: kdbx-backup-family
+name: ${KDBX_BACKUP_PROJECT_NAME:-kdbx-backup}-family
 networks:
   default:
     external: true

@@ -65,7 +65,7 @@ primary:密码库/PASSWD.kdbx     名为 primary 的连接里的文件
 KDBX_BACKUP_DATA_ROOT=../../data/kdbx-backup
 ```
 
-这个相对路径适用于项目位于 `homelab/services/kdbx-backup` 的情况，旧的 `homelab/projects/kdbx-backup` 布局也适用。也可填写绝对路径，例如 `/srv/homelab/data/kdbx-backup`；含空格时加英文引号。填写实际路径，不要在值里继续使用环境变量表达式。
+这个相对路径适用于项目或部署目录位于 `homelab/projects/kdbx-backup` 或 `homelab/services/kdbx-backup` 的情况。也可填写绝对路径，例如 `/srv/homelab/data/kdbx-backup`；含空格时加英文引号。填写实际路径，不要在值里继续使用环境变量表达式。
 
 各任务自动在根目录下使用自己的子目录：
 
@@ -92,6 +92,18 @@ TZ=Asia/Shanghai
 ```
 
 网络必须已存在；项目不会自动创建它。备份容器共用这个外部网络，初始化容器不联网。`TZ` 影响日志时区；快照文件名始终使用 UTC。
+
+### 在同一台机器上运行开发副本
+
+在开发副本的 `.env` 中同时设置独立的 Compose 项目名、数据位置和镜像名：
+
+```dotenv
+KDBX_BACKUP_PROJECT_NAME=kdbx-backup-dev
+KDBX_BACKUP_DATA_ROOT=./var/data
+KDBX_BACKUP_IMAGE=homelab/kdbx-backup:dev
+```
+
+直接运行 Compose 和使用 Python 管理工具都会采用该项目名；命名任务会追加实例名，例如 `kdbx-backup-dev-brother`。生产副本保持默认的 `kdbx-backup`。配置与授权也应分别保存在各自副本中。只修改目录名不会隔离 Docker 项目，只修改项目名也不会隔离数据。
 
 容器默认直连。如果需要访问宿主机代理，可在 `.env` 添加：
 

@@ -79,6 +79,26 @@ class BootstrapTests(unittest.TestCase):
 
 
 class ManagerTests(unittest.TestCase):
+    def test_separate_checkout_uses_independent_projects_and_data_for_every_profile(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            for directory, project in (("deployment", "kdbx-backup"), ("development", "kdbx-backup-dev")):
+                root = Path(temporary) / directory
+                root.mkdir()
+                (root / ".env").write_text("KDBX_BACKUP_PROJECT_NAME=" + project + "\nKDBX_BACKUP_DATA_ROOT=./var/data\n")
+                for profile in ("default", "brother"):
+                    manager = manage.Manager(root, environment={}, profile=profile)
+                    command = manager.compose_command("up", "-d")
+                    self.assertEqual(command[command.index("-p") + 1], project + ("-brother" if profile == "brother" else ""))
+                    self.assertEqual(manager.data_dir, (root / "var/data" / profile).resolve())
+            manager = manage.Manager(root, environment={"KDBX_BACKUP_PROJECT_NAME": "override"})
+            self.assertEqual(manager.project_name, "override")
+
+    def test_project_name_rejects_invalid_compose_names(self):
+        with tempfile.TemporaryDirectory() as root:
+            for value in ("../production", "-production", "has space", "UPPERCASE"):
+                with self.subTest(value=value), self.assertRaisesRegex(ValueError, "KDBX_BACKUP_PROJECT_NAME"):
+                    manage.Manager(root, environment={"KDBX_BACKUP_PROJECT_NAME": value})
+
     def test_container_user_defaults_preserve_existing_environment_settings(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

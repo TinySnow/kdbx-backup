@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
 
 from scripts import bootstrap_rclone
 from scripts.layout import (validate_profile, profile_root, known_profiles, initialize,
-                            initialize_container_user, data_directory)
+                            initialize_container_user, data_directory, settings)
 
 
 class Manager:
@@ -25,6 +25,9 @@ class Manager:
         self.profile = validate_profile(profile)
         self.instance_root = profile_root(self.root, profile)
         self.environment = dict(os.environ if environment is None else environment)
+        self.project_name = settings(self.root, self.environment).get("KDBX_BACKUP_PROJECT_NAME") or "kdbx-backup"
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", self.project_name):
+            raise ValueError("KDBX_BACKUP_PROJECT_NAME must use lowercase letters, digits, _ or -, starting with a letter or digit")
         self.data_dir = data_directory(self.root, profile, self.environment)
         self.environment.update({
             "KDBX_BACKUP_CONFIG_DIR": (self.instance_root / "config").as_posix(),
@@ -40,7 +43,7 @@ class Manager:
 
     def compose_command(self, *arguments, build=False):
         files = ["-f", "compose.yaml"]
-        project = ["-p", "kdbx-backup" + ("-" + self.profile if self.profile != "default" else "")]
+        project = ["-p", self.project_name + ("-" + self.profile if self.profile != "default" else "")]
         return ["docker", "compose", *project, *files, *arguments]
 
     def compose(self, *arguments, build=False):
