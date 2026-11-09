@@ -113,7 +113,9 @@ docker compose stop backup
 docker compose up -d
 ```
 
-其他任务先停止对应任务，将授权文件路径换成自己的路径，再启动该任务。Production 取消 Testing 特定的 7 天限制。刷新令牌连续 6 个月未使用、用户撤销授权、超过令牌数量限制或账号策略变化等，仍可能使授权失效。当前备份服务只在有上传任务时访问目标；主库长期没有变化时，Google Drive 目标不会自动被访问。
+其他任务先停止对应任务，将授权文件路径换成自己的路径，再启动该任务。Production 取消 Testing 特定的 7 天限制。刷新令牌连续 6 个月未使用、用户撤销授权、超过令牌数量限制或账号策略变化等，仍可能使授权失效。
+
+服务会在启动时和默认每 24 小时读取目标目录元数据，即使主库没有变化也会访问 Google Drive，并让 rclone 按需刷新授权。检查结果写入状态和各实例的 `logs/service.log`，详见[连接检查与日志](connection-checks.md)。这可以减少闲置风险、及早发现失效，不能恢复被撤销的权限，也不能延长 Testing 的 7 天期限。
 
 依据：[Google 受众与发布状态](https://support.google.com/cloud/answer/15549945)、[个人用途验证豁免](https://support.google.com/cloud/answer/13464323)、[刷新令牌过期说明](https://developers.google.com/identity/protocols/oauth2#expiration)。
 

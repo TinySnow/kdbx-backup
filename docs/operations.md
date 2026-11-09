@@ -45,11 +45,14 @@ python3 scripts/manage.py status --all
 | `snapshots` | 至少 `1` | 本地已有历史版本 |
 | 每个目标的 `pending` | `0` | 这个云盘没有尚未完成的上传 |
 | `source_error` | `null` | 当前没有来源读取错误 |
-| `target_errors` | `{}` | 当前没有目标上传错误 |
+| `target_errors` | `{}` | 当前没有目标上传或连接检查错误 |
+| 各目标的 `connection_check.state` | `ok` | 最近一次目录连接检查成功且未过期 |
 
 **确认首份备份成功，需要同时看快照数量和每个目标的 `pending`。** 刚产生新历史时，健康状态可能仍为正常，但上传尚未结束。
 
 最后到目标云盘下载一份数据库试开。哈希一致证明上传内容一致，不能代替解锁和核对条目。
+
+服务启动时立即检查每个目标，之后默认每 24 小时检查一次，即使没有新版本也会运行。检查时间、失败原因和下次重试时间见 `connection_check`，详细步骤见[自动检查云盘连接与查看日志](connection-checks.md)。
 
 ## 保存以后，为什么没有立刻出现新文件？
 
@@ -79,17 +82,23 @@ python3 scripts/manage.py logs --profile brother
 
 哥哥的命令会继续显示新日志，按 Ctrl+C 只退出查看，不停止备份。
 
+相同日志也保存在各实例数据目录下的 `logs/service.log`，每份约 5 MiB，保留三份轮转文件。可直接打开本机文件，或运行 `docker compose exec -T backup tail -n 50 /data/logs/service.log` 查看默认任务的文件日志。
+
 | 日志或状态提示 | 接下来怎么做 |
 | --- | --- |
 | `waiting_config` | 检查对应 JSON 是否为 `enabled: true`，确认连接配置齐全后重启任务 |
 | `capture_failed` | 检查主库账号、文件路径和网络；先用本机 rclone 确认能列出该文件 |
 | `source changed during capture` | 读取期间文件被更新，服务会放弃该次读取并在下一轮重试。偶尔出现可稍后再查 |
 | `delivery_failed` | 检查报错目标的授权、空间、目录和网络；另一目标仍可独立上传 |
+| `target_check_failed` | 目标目录只读检查失败，检查授权、网络和路径；服务会自动重试 |
+| `target connection check overdue` | 连接检查长期未成功完成，检查容器、网络和日志 |
 | `source directory must contain exactly one .kdbx` | 目录有多个数据库或没有数据库。把 `source` 改成正确文件的完整路径 |
 | `local archive missing or corrupted` | 保留数据目录，检查磁盘及历史文件；不要通过删除 SQLite 或唯一历史来消除报错 |
 | `rclone operation failed` | 这是概括错误，不能仅凭它判断授权过期。先分别检查账号、路径和网络 |
 
 `snapshot_saved` 表示本地保存成功；`snapshot_verified target=...` 表示该目标完成了上传和校验。
+
+`target_check_ok target=...` 表示目标目录的只读检查成功，它与真实快照上传的校验分别记录。新目标目录还未创建时可能先报告检查失败，首次正常上传创建目录后会立即复查。
 
 ## 主库被删除、替换或重命名后怎么办？
 

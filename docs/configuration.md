@@ -25,11 +25,12 @@
 | `source` | 必填字符串 | 要读取的主库路径，例如 `onedrive:PASSWD.kdbx` |
 | `targets` | 必填，1 至 8 个目标 | 每个目标有 `name` 和 `path` |
 | `poll_seconds` | `60` | 两次来源检查之间等待的秒数 |
+| `target_check_seconds` | `86400`，即 24 小时 | 目标目录只读检查的间隔；启动立即检查，失败按重试策略处理 |
 | `settle_seconds` | `3` | 读取前等待文件稳定的秒数 |
 | `command_timeout_seconds` | `120` | 单次 rclone 命令允许的最长时间 |
 | `max_file_bytes` | `33554432`，即 32 MiB | 允许备份的最大单文件大小 |
 | `retry_seconds` | `60` | 上传失败后的基础重试等待时间；失败继续累积时逐步延长，最长一小时 |
-| `health_grace_seconds` | `900` | 来源长时间未成功或上传积压时的健康判断宽限 |
+| `health_grace_seconds` | `900` | 来源长时间未成功、上传积压或目标检查超期时的健康判断宽限 |
 
 `settle_seconds` 可以为零，其余数值字段必须是正整数。目标名称只允许字母、数字、下划线和连字符，最长 64 字符；同一配置内名称和目标路径不能重复。
 
@@ -74,7 +75,8 @@ KDBX_BACKUP_DATA_ROOT=../../data/kdbx-backup
 │   ├── snapshots/       KDBX 历史和 SHA-256 校验文件
 │   ├── staging/         尚未完成的下载
 │   ├── state.sqlite3    历史索引和上传进度
-│   └── status.json      当前状态
+│   ├── status.json      当前状态
+│   └── logs/service.log 服务与连接检查日志，自动轮转
 └── brother/
 ```
 

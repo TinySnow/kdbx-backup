@@ -49,6 +49,7 @@ class RealRcloneTests(unittest.TestCase):
         self.assertIsNone(self.service.scan())
         for target in self.config["targets"]:
             self.service.deliver_one(target)
+            self.service.check_target(target)
         self.assertTrue(self.service.status()["healthy"])
         for folder in ("google", "nuts"):
             path = self.root / folder / "KDBX-Backups" / first
@@ -68,6 +69,22 @@ class RealRcloneTests(unittest.TestCase):
         self.assertEqual((self.root / "nuts" / "KDBX-Backups" / second).read_bytes(), self.payload[:-1] + b"b")
         self.assertTrue((self.root / "nuts" / "KDBX-Backups" / first).exists())
         self.assertEqual(store.summary(self.config["targets"])["snapshots"], 2)
+
+    def test_missing_target_probe_is_read_only_and_recovers_after_first_upload(self):
+        target = self.config["targets"][0]
+        self.service.check_target(target)
+        self.assertIsNotNone(self.store.target_check(target["path"])["error"])
+        self.assertFalse((self.root / "google/KDBX-Backups").exists())
+        self.service.scan()
+        self.service.deliver_one(target)
+        self.assertTrue(self.service.check_target(target))
+        self.assertIsNone(self.store.target_check(target["path"])["error"])
+        before = {p.name: p.read_bytes() for p in (self.root / "google/KDBX-Backups").iterdir()}
+        with patch.object(app.time, "monotonic", return_value=time.monotonic() + 86401):
+            self.assertTrue(self.service.check_target(target))
+        after = {p.name: p.read_bytes() for p in (self.root / "google/KDBX-Backups").iterdir()}
+        self.assertEqual(before, after)
+        self.assertEqual(self.store.summary([])["snapshots"], 1)
 
     def test_remote_existing_different_content_never_overwritten(self):
         name = self.service.scan()
@@ -108,6 +125,8 @@ class RealRcloneTests(unittest.TestCase):
             path = directory / "archives" / name
             self.assertEqual(path.read_bytes(), self.payload)
             self.assertEqual(self.store.summary([target])["targets"]["webdav"]["pending"], 0)
+            self.rclone.probe(target["path"])
+            self.assertEqual(path.read_bytes(), self.payload)
             wrong = self.payload[:-1] + b"x"
             path.write_bytes(wrong)
             with self.assertRaises(app.BackupError):
@@ -127,6 +146,7 @@ class ProfileProcessTests(unittest.TestCase):
             (root / "examples").mkdir()
             template = {"enabled": False, "source": "onedrive:", "poll_seconds": 1,
                         "settle_seconds": 0, "command_timeout_seconds": 20, "retry_seconds": 1,
+                        "target_check_seconds": 1,
                         "targets": [{"name": "drive", "path": "gdrive:KDBX-Backups"}]}
             (root / "examples/config.example.json").write_text(json.dumps(template))
             cloud = root / "shared-cloud"
@@ -174,6 +194,18 @@ class ProfileProcessTests(unittest.TestCase):
                     uploaded = list((cloud / "KDBX-Backups" / name).glob("*.kdbx"))
                     self.assertEqual(len(uploaded), 1)
                     self.assertEqual(uploaded[0].read_bytes(), payload(value))
+                # No new database version is needed for another connection check.
+                def repeated_checks():
+                    for name in instances:
+                        log = storages[name] / "logs/service.log"
+                        if not log.exists() or log.read_text().count("target_check_ok") < 2:
+                            return False
+                    return True
+                wait_for(repeated_checks)
+                for name in instances:
+                    status = json.loads((storages[name] / "status.json").read_text())
+                    self.assertEqual(status["targets"]["drive"]["connection_check"]["state"], "ok")
+                    self.assertEqual(status["snapshots"], 1)
                 # One account loses its source while the other continues saving versions.
                 (root / "me-onedrive/passwords.kdbx").unlink()
                 (root / "family-onedrive/passwords.kdbx").write_bytes(payload(b"c"))

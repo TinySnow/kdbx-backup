@@ -10,6 +10,7 @@ import fcntl
 import hashlib
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 from pathlib import Path
 import re
@@ -74,6 +75,29 @@ def atomic_write(path, payload):
         Path(temporary).unlink(missing_ok=True)
 
 
+class PrivateRotatingFileHandler(RotatingFileHandler):
+    def _open(self):
+        # Keep newly rotated files private even if the caller has a broad umask.
+        descriptor = os.open(self.baseFilename, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
+        try:
+            os.fchmod(descriptor, 0o600)
+            return os.fdopen(descriptor, self.mode, encoding=self.encoding, errors=self.errors)
+        except Exception:
+            os.close(descriptor)
+            raise
+
+
+def configure_file_logging(data, max_bytes=5 * 1024 * 1024, backups=3):
+    directory = Path(data) / "logs"
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = directory / "service.log"
+    handler = PrivateRotatingFileHandler(path, maxBytes=max_bytes, backupCount=backups,
+                                         encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    LOG.addHandler(handler)
+    return handler
+
+
 def load_config(path):
     config = json.loads(Path(path).read_text())
     if not isinstance(config, dict):
@@ -86,6 +110,7 @@ def load_config(path):
         "poll_seconds": 60, "settle_seconds": 3,
         "command_timeout_seconds": 120, "max_file_bytes": 33554432,
         "retry_seconds": 60, "health_grace_seconds": 900,
+        "target_check_seconds": 86400,
     }
     for name, default in defaults.items():
         value = config.setdefault(name, default)
@@ -155,6 +180,12 @@ class Rclone:
     def download(self, source, destination):
         self.run("copyto", "--ignore-times", "--", source, destination)
 
+    def probe(self, directory):
+        # Read metadata only; do not enumerate archives or create a marker file.
+        value = json.loads(self.run("lsjson", "--stat", "--", directory))
+        if not isinstance(value, dict) or not value.get("IsDir"):
+            raise BackupError("backup target must be an accessible directory")
+
     def upload(self, source, directory, digest):
         # rclone 1.75.2's single-file copy/copyto path bypasses immutable checks.
         # Force its directory-copy path and include exactly this generated name.
@@ -199,6 +230,11 @@ class Store:
                     attempts INTEGER NOT NULL DEFAULT 0,
                     next_try REAL NOT NULL DEFAULT 0, verified REAL,
                     PRIMARY KEY(name, destination));
+                CREATE TABLE IF NOT EXISTS target_checks (
+                    destination TEXT PRIMARY KEY,
+                    last_attempt REAL NOT NULL, last_success REAL,
+                    next_check REAL NOT NULL,
+                    failures INTEGER NOT NULL, error TEXT);
             """)
 
     @contextlib.contextmanager
@@ -302,6 +338,29 @@ class Store:
             db.execute("""UPDATE deliveries SET attempts=attempts+1, next_try=?
                           WHERE name=? AND destination=?""", (time.time() + delay, name, destination))
 
+    def target_check(self, destination):
+        with self.connect() as db:
+            row = db.execute("""SELECT last_attempt, last_success, next_check,
+                                       failures, error FROM target_checks
+                                WHERE destination=?""", (destination,)).fetchone()
+        return dict(row) if row else {
+            "last_attempt": None, "last_success": None, "next_check": None,
+            "failures": 0, "error": None,
+        }
+
+    def record_target_check(self, destination, checked, delay, error):
+        with self.connect() as db:
+            db.execute("""INSERT INTO target_checks VALUES (?, ?, ?, ?, ?, ?)
+                          ON CONFLICT(destination) DO UPDATE SET
+                            last_attempt=excluded.last_attempt,
+                            last_success=COALESCE(excluded.last_success, target_checks.last_success),
+                            next_check=excluded.next_check,
+                            failures=CASE WHEN excluded.error IS NULL THEN 0
+                                          ELSE target_checks.failures+1 END,
+                            error=excluded.error""",
+                       (destination, checked, checked if error is None else None,
+                        checked + delay, 0 if error is None else 1, error))
+
     def summary(self, targets):
         with self.connect() as db:
             total = db.execute("SELECT COUNT(*), MAX(captured) FROM snapshots").fetchone()
@@ -323,6 +382,9 @@ class Backup:
         self.source_error = None
         self.target_errors = {}
         self.error_lock = threading.Lock()
+        # Always check on startup, regardless of the persisted next_check.
+        # A monotonic deadline keeps clock changes from postponing live checks.
+        self.next_target_checks = {}
 
     def scan(self):
         if self.source is None:
@@ -364,12 +426,37 @@ class Backup:
             self.store.delivered(name, target["path"])
             with self.error_lock:
                 self.target_errors.pop(target["name"], None)
+            # The first upload may have created a missing target directory.
+            # Recheck immediately instead of retaining the startup failure.
+            if self.store.target_check(target["path"])["error"] is not None:
+                self.next_target_checks[target["path"]] = 0
             LOG.info("snapshot_verified target=%s name=%s", target["name"], name)
         except (BackupError, OSError) as error:
             self.store.failed(name, target["path"], item["attempts"], self.config["retry_seconds"])
             with self.error_lock:
                 self.target_errors[target["name"]] = str(error)
             LOG.error("delivery_failed target=%s reason=%s", target["name"], error)
+        return True
+
+    def check_target(self, target):
+        destination = target["path"]
+        if time.monotonic() < self.next_target_checks.get(destination, 0):
+            return False
+        error = None
+        delay = self.config.get("target_check_seconds", 86400)
+        try:
+            self.rclone.probe(destination)
+        except (BackupError, OSError, ValueError) as failure:
+            error = str(failure)
+            failures = self.store.target_check(destination)["failures"]
+            delay = min(self.config["retry_seconds"] * 2 ** min(failures, 10), 3600)
+        checked = time.time()
+        self.store.record_target_check(destination, checked, delay, error)
+        self.next_target_checks[destination] = time.monotonic() + delay
+        if error is None:
+            LOG.info("target_check_ok target=%s", target["name"])
+        else:
+            LOG.error("target_check_failed target=%s reason=%s", target["name"], error)
         return True
 
     def scan_loop(self):
@@ -383,6 +470,9 @@ class Backup:
 
     def target_loop(self, target):
         while not self.stop.is_set():
+            self.check_target(target)
+            if self.stop.is_set():
+                break
             if not self.deliver_one(target):
                 self.stop.wait(5)
 
@@ -393,10 +483,26 @@ class Backup:
         with self.error_lock:
             errors = dict(self.target_errors)
         healthy = self.last_source_ok is not None and now - self.last_source_ok <= grace
-        healthy = healthy and self.source_error is None and not errors
-        for target in result["targets"].values():
+        healthy = healthy and self.source_error is None
+        for configured in self.config["targets"]:
+            name = configured["name"]
+            target = result["targets"][name]
+            check = self.store.target_check(configured["path"])
+            if check["error"] is not None:
+                check["state"] = "error"
+                errors.setdefault(name, check["error"])
+            elif check["last_success"] is None:
+                check["state"] = "pending"
+                healthy = False
+            elif now - check["last_success"] > self.config.get("target_check_seconds", 86400) + grace:
+                check["state"] = "stale"
+                errors.setdefault(name, "target connection check overdue")
+            else:
+                check["state"] = "ok"
+            target["connection_check"] = check
             if target["oldest_pending"] is not None and now - target["oldest_pending"] > grace:
                 healthy = False
+        healthy = healthy and not errors
         result.update(updated=now, mode="running", healthy=healthy,
                       last_source_ok=self.last_source_ok, source_error=self.source_error,
                       target_errors=errors)
@@ -447,6 +553,7 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         raise BackupError("another backup process already uses this data directory")
+    configure_file_logging(data)
     stop = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
